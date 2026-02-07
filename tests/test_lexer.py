@@ -67,9 +67,6 @@ def test_complex_expression():
     tokenizer = Tokenizer("auto x = 5 + 3 * 2;")
     assert tokenizer.get_tokens_as_string() == "auto,x,=,5,+,3,*,2,;,<EOF>"
 
-
-# ========== Additional Test Cases (100 new tests) ==========
-
 # ========== Keywords (15 more tests) ==========
 def test_keyword_break():
     """11. Keyword: break"""
@@ -581,14 +578,14 @@ def test_struct_declaration():
     assert Tokenizer("struct Point { int x; int y; };").get_tokens_as_string() == "struct,Point,{,int,x,;,int,y,;,},;,<EOF>"
 
 
-# ========== Spec-Compliant Test: Negative Literals ==========
+# ========== Negative Literals ==========
 def test_minus_and_intlit_spec_compliant():
     """111. Spec: a - - 123 tokenizes as four tokens (spaces prevent literal grouping)"""
     tokenizer = Tokenizer("void main(){ int x = a - - 123; }")
     assert tokenizer.get_tokens_as_string() == "void,main,(,),{,int,x,=,a,-,-,123,;,},<EOF>"
 
 
-# ========== Additional Illegal Escape Sequences (7 tests) ==========
+# ========== Illegal Escape Sequences (7 tests) ==========
 def test_illegal_escape_a():
     """112. Illegal escape: \\a"""
     assert Tokenizer('"test\\a"').get_tokens_as_string() == 'Illegal Escape In String: test\\a'
@@ -744,3 +741,31 @@ def test_identifier_cannot_start_with_digit():
     """137. Identifier: cannot start with digit"""
     tokenizer = Tokenizer("9person")
     assert tokenizer.get_tokens_as_string() == "9,person,<EOF>"
+
+
+# ========== Square Bracket Separators (2 tests) ==========
+def test_separator_left_square_bracket():
+    """138. Separator: left square bracket ["""
+    tokenizer = Tokenizer("[")
+    assert tokenizer.get_tokens_as_string() == "[,<EOF>"
+
+
+def test_separator_right_square_bracket():
+    """139. Separator: right square bracket ]"""
+    tokenizer = Tokenizer("]")
+    assert tokenizer.get_tokens_as_string() == "],<EOF>"
+
+
+# ========== Additional Error Characters (1 test) ==========
+def test_error_invalid_char_question():
+    """140. Error: question mark is invalid character"""
+    tokenizer = Tokenizer("?")
+    assert tokenizer.get_tokens_as_string() == "Error Token ?"
+
+
+# ========== Non-ASCII Characters (1 test) ==========
+def test_identifier_non_ascii_rejected():
+    """141. Identifier: non-ASCII characters are rejected"""
+    tokenizer = Tokenizer("café")
+    # The 'é' character should cause an error token
+    assert "Error Token" in tokenizer.get_tokens_as_string() or tokenizer.get_tokens_as_string() == "caf,Error Token é,<EOF>"

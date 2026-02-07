@@ -66,8 +66,6 @@ def test_assignment_simple():
     assert Parser(source).parse() == "success"
 
 
-# ========== Additional Test Cases (100 new tests) ==========
-
 # ========== Program Structure (4 tests) ==========
 def test_program_single_function():
     """11. Program: single function"""
@@ -1467,6 +1465,27 @@ def test_program_gcd():
         int y = readInt();
         int result = gcd(x, y);
         printInt(result);
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+# ========== Deeply Nested Struct Initialization (1 test) ==========
+def test_struct_deeply_nested_initialization():
+    """166. Struct: deeply nested struct initialization"""
+    source = """
+    struct Inner {
+        int x;
+        int y;
+    };
+
+    struct Outer {
+        Inner in;
+        int z;
+    };
+
+    void main() {
+        Outer o = {{1, 2}, 3};
     }
     """
     assert Parser(source).parse() == "success"
