@@ -280,13 +280,13 @@ def test_integer_large():
 
 
 def test_integer_negative():
-    """52. Integer: -45 (tokenizes as minus and int)"""
-    assert Tokenizer("-45").get_tokens_as_string() == "-,45,<EOF>"
+    """52. Integer: -45 (spec: negative literal is one token)"""
+    assert Tokenizer("-45").get_tokens_as_string() == "-45,<EOF>"
 
 
 def test_integer_negative_small():
-    """53. Integer: -1 (tokenizes as minus and int)"""
-    assert Tokenizer("-1").get_tokens_as_string() == "-,1,<EOF>"
+    """53. Integer: -1 (spec: negative literal is one token)"""
+    assert Tokenizer("-1").get_tokens_as_string() == "-1,<EOF>"
 
 
 def test_integer_with_leading_zeros():
@@ -346,13 +346,13 @@ def test_float_decimal_exponent_negative():
 
 
 def test_float_negative():
-    """65. Float: -3.14 (tokenizes as minus and float)"""
-    assert Tokenizer("-3.14").get_tokens_as_string() == "-,3.14,<EOF>"
+    """65. Float: -3.14 (spec: negative literal is one token)"""
+    assert Tokenizer("-3.14").get_tokens_as_string() == "-3.14,<EOF>"
 
 
 def test_float_negative_exponent():
-    """66. Float: -1.5e2 (tokenizes as minus and float)"""
-    assert Tokenizer("-1.5e2").get_tokens_as_string() == "-,1.5e2,<EOF>"
+    """66. Float: -1.5e2 (spec: negative literal is one token)"""
+    assert Tokenizer("-1.5e2").get_tokens_as_string() == "-1.5e2,<EOF>"
 
 
 def test_float_dot_zero():
@@ -581,9 +581,9 @@ def test_struct_declaration():
     assert Tokenizer("struct Point { int x; int y; };").get_tokens_as_string() == "struct,Point,{,int,x,;,int,y,;,},;,<EOF>"
 
 
-# ========== CRITICAL TEST: Grammar Bug Fix Validation ==========
-def test_minus_and_intlit():
-    """111. CRITICAL: Minus sign with integer literal (validates grammar fix)"""
+# ========== Spec-Compliant Test: Negative Literals ==========
+def test_minus_and_intlit_spec_compliant():
+    """111. Spec: a - - 123 tokenizes as four tokens (spaces prevent literal grouping)"""
     tokenizer = Tokenizer("void main(){ int x = a - - 123; }")
     assert tokenizer.get_tokens_as_string() == "void,main,(,),{,int,x,=,a,-,-,123,;,},<EOF>"
 
