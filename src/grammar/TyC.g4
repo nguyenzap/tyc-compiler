@@ -66,6 +66,7 @@ stmt
     | continueStmt
     | returnStmt
     | exprStmt
+    | SEMI              // Empty statement
     ;
 
 blockStmt : LBRACE stmt* RBRACE ;
@@ -206,6 +207,8 @@ LBRACE : '{' ;
 RBRACE : '}' ;
 LPAREN : '(' ;
 RPAREN : ')' ;
+LBRACK : '[' ;
+RBRACK : ']' ;
 SEMI : ';' ;
 COMMA : ',' ;
 COLON : ':' ;
