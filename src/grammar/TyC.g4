@@ -215,15 +215,15 @@ COLON : ':' ;
 
 // Float literals (must come before INTLIT to match properly)
 FLOATLIT
-    : MINUS? [0-9]+ '.' [0-9]* EXPONENT?     // 3.14, 1., 1.e5
-    | MINUS? '.' [0-9]+ EXPONENT?            // .5, .5e-2
-    | MINUS? [0-9]+ EXPONENT                 // 1e4, 2E-3
+    : [0-9]+ '.' [0-9]* EXPONENT?     // 3.14, 1., 1.e5
+    | '.' [0-9]+ EXPONENT?            // .5, .5e-2
+    | [0-9]+ EXPONENT                 // 1e4, 2E-3
     ;
 
 fragment EXPONENT : [eE] [+-]? [0-9]+ ;
 
 // Integer literals
-INTLIT : MINUS? [0-9]+ ;
+INTLIT : [0-9]+ ;
 
 // String literals and errors (errors must come before valid STRING_LIT)
 ILLEGAL_ESCAPE : '"' STRING_CHAR* '\\' ~[bfrnt"\\] {self.text = self.text[1:]} ;

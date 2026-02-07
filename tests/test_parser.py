@@ -969,3 +969,504 @@ def test_program_comprehensive():
     }
     """
     assert Parser(source).parse() == "success"
+
+
+# ========== Additional Parser Tests from Friends' Suites ==========
+
+# Expression Precedence Validation Tests
+def test_precedence_add_mul():
+    """111. Precedence: 2 + 3 * 4 = 2 + (3 * 4)"""
+    source = "void main() { int x = 2 + 3 * 4; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_precedence_mul_parentheses():
+    """112. Precedence: (2 + 3) * 4"""
+    source = "void main() { int x = (2 + 3) * 4; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_precedence_logical_and_or():
+    """113. Precedence: a && b || c = (a && b) || c"""
+    source = "void main() { int x = a && b || c; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_precedence_comparison_arithmetic():
+    """114. Precedence: a + b < c * d"""
+    source = "void main() { int x = a + b < c * d; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_precedence_unary_minus():
+    """115. Precedence: -a * b = (-a) * b"""
+    source = "void main() { int x = -a * b; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_precedence_not_and():
+    """116. Precedence: !a && b = (!a) && b"""
+    source = "void main() { int x = !a && b; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_precedence_assignment_right_assoc():
+    """117. Precedence: x = y = 5 = x = (y = 5)"""
+    source = "void main() { int x; int y; x = y = 5; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_precedence_postfix_member():
+    """118. Precedence: obj.field++"""
+    source = "void main() { Point p; p.x++; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_precedence_function_call_member():
+    """119. Precedence: obj.method()"""
+    source = "void main() { result = obj.getX(); }"
+    assert Parser(source).parse() == "success"
+
+
+def test_precedence_chained_comparison():
+    """120. Precedence: a < b == c < d"""
+    source = "void main() { int x = a < b == c < d; }"
+    assert Parser(source).parse() == "success"
+
+
+# Complex Control Flow Tests
+def test_nested_if_else_chains():
+    """121. Control flow: nested if-else chains"""
+    source = """
+    void main() {
+        if (a) {
+            if (b) x = 1;
+            else if (c) x = 2;
+            else x = 3;
+        } else {
+            if (d) x = 4;
+            else x = 5;
+        }
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_while_with_break_continue():
+    """122. Control flow: while with break and continue"""
+    source = """
+    void main() {
+        while (x < 10) {
+            if (x == 5) break;
+            if (x % 2 == 0) continue;
+            x++;
+        }
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_for_loop_all_optional_parts():
+    """123. For loop: all parts optional"""
+    source = "void main() { for (;;) { break; } }"
+    assert Parser(source).parse() == "success"
+
+
+def test_for_loop_init_only():
+    """124. For loop: init only"""
+    source = "void main() { for (int i = 0;;) { break; } }"
+    assert Parser(source).parse() == "success"
+
+
+def test_for_loop_condition_only():
+    """125. For loop: condition only"""
+    source = "void main() { for (; i < 10;) { i++; } }"
+    assert Parser(source).parse() == "success"
+
+
+def test_for_loop_update_only():
+    """126. For loop: update only"""
+    source = "void main() { for (;; i++) { if (i > 10) break; } }"
+    assert Parser(source).parse() == "success"
+
+
+def test_switch_multiple_cases_same_label():
+    """127. Switch: multiple cases before statements"""
+    source = """
+    void main() {
+        switch (x) {
+            case 1:
+            case 2:
+            case 3:
+                printInt(123);
+                break;
+            default:
+                printInt(0);
+        }
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_switch_fall_through():
+    """128. Switch: fall through (no break)"""
+    source = """
+    void main() {
+        switch (x) {
+            case 1:
+                printInt(1);
+            case 2:
+                printInt(2);
+                break;
+        }
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_switch_only_default():
+    """129. Switch: only default case"""
+    source = """
+    void main() {
+        switch (x) {
+            default:
+                printInt(0);
+        }
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_switch_empty():
+    """130. Switch: empty switch"""
+    source = "void main() { switch (x) { } }"
+    assert Parser(source).parse() == "success"
+
+
+# Struct and Type Tests
+def test_struct_empty():
+    """131. Struct: empty struct"""
+    source = "struct Empty { };"
+    assert Parser(source).parse() == "success"
+
+
+def test_struct_self_reference():
+    """132. Struct: self-referential (valid syntax)"""
+    source = "struct Node { int value; Node next; };"
+    assert Parser(source).parse() == "success"
+
+
+def test_struct_multiple_same_type():
+    """133. Struct: multiple fields of same type"""
+    source = "struct Data { int a; int b; int c; };"
+    assert Parser(source).parse() == "success"
+
+
+def test_struct_init_nested():
+    """134. Struct: nested initialization"""
+    source = "void main() { Rectangle r = {{0, 0}, {10, 20}}; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_struct_member_access_chain():
+    """135. Struct: chained member access"""
+    source = "void main() { int x = rect.topLeft.x; }"
+    assert Parser(source).parse() == "success"
+
+
+# Function Declaration Tests
+def test_function_no_params_auto_return():
+    """136. Function: no params, auto return type"""
+    source = "getValue() { return 42; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_function_multiple_params():
+    """137. Function: multiple parameters"""
+    source = "int calculate(int a, int b, int c, int d) { return a + b + c + d; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_function_struct_param():
+    """138. Function: struct parameter"""
+    source = "int getX(Point p) { return p.x; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_function_struct_return():
+    """139. Function: struct return type"""
+    source = "Point createPoint(int x, int y) { Point p = {x, y}; return p; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_function_void_with_params():
+    """140. Function: void with parameters"""
+    source = "void printPoint(Point p) { printInt(p.x); printInt(p.y); }"
+    assert Parser(source).parse() == "success"
+
+
+# Expression Tests
+def test_expression_complex_arithmetic():
+    """141. Expression: complex arithmetic"""
+    source = "void main() { int x = (a + b) * (c - d) / (e + f); }"
+    assert Parser(source).parse() == "success"
+
+
+def test_expression_all_comparison_ops():
+    """142. Expression: all comparison operators"""
+    source = "void main() { int a = x < y; int b = x <= y; int c = x > y; int d = x >= y; int e = x == y; int f = x != y; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_expression_prefix_postfix_mix():
+    """143. Expression: prefix and postfix operators"""
+    source = "void main() { int x = ++a + b++ - --c + d--; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_expression_function_call_chain():
+    """144. Expression: function call chain"""
+    source = "void main() { int x = getValue().getNext().getData(); }"
+    assert Parser(source).parse() == "success"
+
+
+def test_expression_function_call_with_complex_args():
+    """145. Expression: function call with complex arguments"""
+    source = "void main() { int x = calculate(a + b, c * d, getValue()); }"
+    assert Parser(source).parse() == "success"
+
+
+# Statement Tests
+def test_statement_multiple_var_decls():
+    """146. Statement: multiple variable declarations"""
+    source = "void main() { int x; int y; int z; auto a = 1; auto b = 2; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_statement_mixed_types():
+    """147. Statement: mixed statement types"""
+    source = """
+    void main() {
+        int x = 5;
+        if (x > 0) {
+            while (x < 10) {
+                for (int i = 0; i < x; i++) {
+                    printInt(i);
+                }
+                x++;
+            }
+        }
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_statement_return_complex_expr():
+    """148. Statement: return complex expression"""
+    source = "int calc(int x) { return (x + 1) * (x - 1) / x; }"
+    assert Parser(source).parse() == "success"
+
+
+def test_statement_return_function_call():
+    """149. Statement: return function call"""
+    source = "int proxy(int x) { return calculate(x); }"
+    assert Parser(source).parse() == "success"
+
+
+def test_statement_empty_statement():
+    """150. Statement: empty statement (standalone semicolon)"""
+    source = "void main() { ; ; ; }"
+    assert Parser(source).parse() == "success"
+
+
+# Complex Program Tests
+def test_program_fibonacci():
+    """151. Program: fibonacci function"""
+    source = """
+    int fib(int n) {
+        if (n <= 1) return n;
+        return fib(n - 1) + fib(n - 2);
+    }
+
+    void main() {
+        int result = fib(10);
+        printInt(result);
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_program_bubble_sort():
+    """152. Program: bubble sort outline"""
+    source = """
+    void bubbleSort(int arr, int n) {
+        for (int i = 0; i < n - 1; i++) {
+            for (int j = 0; j < n - i - 1; j++) {
+                if (arr > arr) {
+                    int temp = arr;
+                    arr = arr;
+                    arr = temp;
+                }
+            }
+        }
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_program_multiple_structs_and_functions():
+    """153. Program: multiple structs and functions"""
+    source = """
+    struct Vector { int x; int y; };
+    struct Matrix { Vector row1; Vector row2; };
+
+    Vector addVectors(Vector a, Vector b) {
+        Vector result = {a.x + b.x, a.y + b.y};
+        return result;
+    }
+
+    int dotProduct(Vector a, Vector b) {
+        return a.x * b.x + a.y * b.y;
+    }
+
+    void main() {
+        Vector v1 = {1, 2};
+        Vector v2 = {3, 4};
+        Vector sum = addVectors(v1, v2);
+        int dot = dotProduct(v1, v2);
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_program_deeply_nested():
+    """154. Program: deeply nested structures"""
+    source = """
+    void main() {
+        if (a) {
+            while (b) {
+                for (int i = 0; i < 10; i++) {
+                    switch (i) {
+                        case 0:
+                            if (c) {
+                                printInt(i);
+                            }
+                            break;
+                    }
+                }
+            }
+        }
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_program_all_operators():
+    """155. Program: using all operators"""
+    source = """
+    void main() {
+        int a = 1 + 2 - 3 * 4 / 5 % 6;
+        int b = a < 10 && a > 0 || a == 5;
+        int c = !b;
+        int d = ++a + a++ - --a + a--;
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_program_struct_manipulation():
+    """156. Program: complex struct manipulation"""
+    source = """
+    struct Person { int age; string name; };
+
+    void birthday(Person p) {
+        p.age = p.age + 1;
+    }
+
+    void main() {
+        Person john = {25, "John"};
+        birthday(john);
+        printInt(john.age);
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_program_recursive_factorial():
+    """157. Program: recursive factorial"""
+    source = """
+    int factorial(int n) {
+        if (n <= 1) {
+            return 1;
+        } else {
+            return n * factorial(n - 1);
+        }
+    }
+
+    void main() {
+        int num = readInt();
+        int result = factorial(num);
+        printInt(result);
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_program_iterative_factorial():
+    """158. Program: iterative factorial"""
+    source = """
+    int factorial(int n) {
+        int result = 1;
+        for (int i = 1; i <= n; i++) {
+            result = result * i;
+        }
+        return result;
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_program_prime_checker():
+    """159. Program: prime number checker"""
+    source = """
+    int isPrime(int n) {
+        if (n <= 1) return 0;
+        for (int i = 2; i * i <= n; i++) {
+            if (n % i == 0) return 0;
+        }
+        return 1;
+    }
+
+    void main() {
+        int num = readInt();
+        int prime = isPrime(num);
+        if (prime) {
+            printString("Prime");
+        } else {
+            printString("Not prime");
+        }
+    }
+    """
+    assert Parser(source).parse() == "success"
+
+
+def test_program_gcd():
+    """160. Program: greatest common divisor"""
+    source = """
+    int gcd(int a, int b) {
+        while (b != 0) {
+            int temp = b;
+            b = a % b;
+            a = temp;
+        }
+        return a;
+    }
+
+    void main() {
+        int x = readInt();
+        int y = readInt();
+        int result = gcd(x, y);
+        printInt(result);
+    }
+    """
+    assert Parser(source).parse() == "success"

@@ -280,13 +280,13 @@ def test_integer_large():
 
 
 def test_integer_negative():
-    """52. Integer: -45"""
-    assert Tokenizer("-45").get_tokens_as_string() == "-45,<EOF>"
+    """52. Integer: -45 (tokenizes as minus and int)"""
+    assert Tokenizer("-45").get_tokens_as_string() == "-,45,<EOF>"
 
 
 def test_integer_negative_small():
-    """53. Integer: -1"""
-    assert Tokenizer("-1").get_tokens_as_string() == "-1,<EOF>"
+    """53. Integer: -1 (tokenizes as minus and int)"""
+    assert Tokenizer("-1").get_tokens_as_string() == "-,1,<EOF>"
 
 
 def test_integer_with_leading_zeros():
@@ -346,13 +346,13 @@ def test_float_decimal_exponent_negative():
 
 
 def test_float_negative():
-    """65. Float: -3.14"""
-    assert Tokenizer("-3.14").get_tokens_as_string() == "-3.14,<EOF>"
+    """65. Float: -3.14 (tokenizes as minus and float)"""
+    assert Tokenizer("-3.14").get_tokens_as_string() == "-,3.14,<EOF>"
 
 
 def test_float_negative_exponent():
-    """66. Float: -1.5e2"""
-    assert Tokenizer("-1.5e2").get_tokens_as_string() == "-1.5e2,<EOF>"
+    """66. Float: -1.5e2 (tokenizes as minus and float)"""
+    assert Tokenizer("-1.5e2").get_tokens_as_string() == "-,1.5e2,<EOF>"
 
 
 def test_float_dot_zero():
@@ -579,3 +579,168 @@ def test_function_declaration():
 def test_struct_declaration():
     """110. Complex: struct"""
     assert Tokenizer("struct Point { int x; int y; };").get_tokens_as_string() == "struct,Point,{,int,x,;,int,y,;,},;,<EOF>"
+
+
+# ========== CRITICAL TEST: Grammar Bug Fix Validation ==========
+def test_minus_and_intlit():
+    """111. CRITICAL: Minus sign with integer literal (validates grammar fix)"""
+    tokenizer = Tokenizer("void main(){ int x = a - - 123; }")
+    assert tokenizer.get_tokens_as_string() == "void,main,(,),{,int,x,=,a,-,-,123,;,},<EOF>"
+
+
+# ========== Additional Illegal Escape Sequences (7 tests) ==========
+def test_illegal_escape_a():
+    """112. Illegal escape: \\a"""
+    assert Tokenizer('"test\\a"').get_tokens_as_string() == 'Illegal Escape In String: test\\a'
+
+
+def test_illegal_escape_v():
+    """113. Illegal escape: \\v"""
+    assert Tokenizer('"abc\\v"').get_tokens_as_string() == 'Illegal Escape In String: abc\\v'
+
+
+def test_illegal_escape_single_quote():
+    """114. Illegal escape: \\'"""
+    assert Tokenizer(r'"text\'more"').get_tokens_as_string() == "Illegal Escape In String: text\\'"
+
+
+def test_illegal_escape_question():
+    """115. Illegal escape: \\?"""
+    assert Tokenizer('"what\\?"').get_tokens_as_string() == 'Illegal Escape In String: what\\?'
+
+
+def test_illegal_escape_zero():
+    """116. Illegal escape: \\0"""
+    assert Tokenizer('"null\\0char"').get_tokens_as_string() == 'Illegal Escape In String: null\\0'
+
+
+def test_illegal_escape_z():
+    """117. Illegal escape: \\z"""
+    assert Tokenizer('"end\\z"').get_tokens_as_string() == 'Illegal Escape In String: end\\z'
+
+
+def test_illegal_escape_digit():
+    """118. Illegal escape: \\1"""
+    assert Tokenizer('"num\\1ber"').get_tokens_as_string() == 'Illegal Escape In String: num\\1'
+
+
+# ========== Comment Edge Cases (10 tests) ==========
+def test_comment_not_nested():
+    """119. Comment: block stops at first */"""
+    tokenizer = Tokenizer("/* outer */ inner */ id")
+    assert tokenizer.get_tokens_as_string() == "inner,*,/,id,<EOF>"
+
+
+def test_comment_unterminated_block():
+    """120. Comment: unterminated block becomes tokens"""
+    tokenizer = Tokenizer("/* Unclosed block comment")
+    assert tokenizer.get_tokens_as_string() == "/,*,Unclosed,block,comment,<EOF>"
+
+
+def test_comment_block_multiline():
+    """121. Comment: block spans multiple lines"""
+    tokenizer = Tokenizer("/* line1\nline2\nline3 */")
+    assert tokenizer.get_tokens_as_string() == "<EOF>"
+
+
+def test_comment_block_with_special_chars():
+    """122. Comment: block with special characters"""
+    tokenizer = Tokenizer("/* !@#$%^&*() */")
+    assert tokenizer.get_tokens_as_string() == "<EOF>"
+
+
+def test_comment_line_with_block_markers():
+    """123. Comment: /* */ has no meaning in line comment"""
+    tokenizer = Tokenizer("// this /* is not a block */\n")
+    assert tokenizer.get_tokens_as_string() == "<EOF>"
+
+
+def test_comment_line_at_eof():
+    """124. Comment: line comment at EOF"""
+    tokenizer = Tokenizer("// Line comment at EOF")
+    assert tokenizer.get_tokens_as_string() == "<EOF>"
+
+
+def test_comment_nested_line():
+    """125. Comment: nested line comments"""
+    tokenizer = Tokenizer("// Outer // Inner\n")
+    assert tokenizer.get_tokens_as_string() == "<EOF>"
+
+
+def test_comment_line_with_special_chars():
+    """126. Comment: line with special characters"""
+    tokenizer = Tokenizer("// !@#$%^&*() \n")
+    assert tokenizer.get_tokens_as_string() == "<EOF>"
+
+
+def test_comment_after_code():
+    """127. Comment: after code on same line"""
+    tokenizer = Tokenizer("int x = 5; // This is x")
+    assert tokenizer.get_tokens_as_string() == "int,x,=,5,;,<EOF>"
+
+
+def test_comment_block_empty():
+    """128. Comment: empty block comment"""
+    tokenizer = Tokenizer("/**/")
+    assert tokenizer.get_tokens_as_string() == "<EOF>"
+
+
+# ========== Direct Newline in Strings (2 tests) ==========
+def test_string_direct_newline_unclosed():
+    """129. String: direct newline causes unclosed string"""
+    tokenizer = Tokenizer('"This has a direct\n newline"')
+    assert tokenizer.get_tokens_as_string() == 'Unclosed String: This has a direct\n'
+
+
+def test_string_direct_carriage_return():
+    """130. String: direct carriage return causes unclosed string"""
+    tokenizer = Tokenizer('"Text with\r return"')
+    assert tokenizer.get_tokens_as_string() == 'Unclosed String: Text with\r'
+
+
+# ========== Error Priority (1 test) ==========
+def test_error_priority_illegal_before_unclosed():
+    """131. Error: illegal escape has priority over unclosed string"""
+    tokenizer = Tokenizer('"a\\q\n')
+    assert tokenizer.get_tokens_as_string() == 'Illegal Escape In String: a\\q'
+
+
+# ========== Operator Longest Match (2 tests) ==========
+def test_operator_plus_plus_plus():
+    """132. Operator: +++ tokenizes as ++, +"""
+    tokenizer = Tokenizer("+++")
+    assert tokenizer.get_tokens_as_string() == "++,+,<EOF>"
+
+
+def test_operator_minus_minus_minus():
+    """133. Operator: --- tokenizes as --, -"""
+    tokenizer = Tokenizer("---")
+    assert tokenizer.get_tokens_as_string() == "--,-,<EOF>"
+
+
+# ========== Float Edge Cases (1 test) ==========
+def test_float_multiple_dots():
+    """134. Float: 3.1.4 tokenizes as two floats"""
+    tokenizer = Tokenizer("3.1.4")
+    assert tokenizer.get_tokens_as_string() == "3.1,.4,<EOF>"
+
+
+# ========== Extended ASCII (1 test) ==========
+def test_string_extended_ascii():
+    """135. String: extended ASCII characters"""
+    tokenizer = Tokenizer('"\x80\xFF"')
+    assert tokenizer.get_tokens_as_string() == '\x80\xFF,<EOF>'
+
+
+# ========== All Legal Escapes (1 test) ==========
+def test_string_all_legal_escapes():
+    """136. String: all legal escape sequences mixed"""
+    tokenizer = Tokenizer('"A\\bB\\fC\\rD\\nE\\tF\\"G\\\\"')
+    assert tokenizer.get_tokens_as_string() == 'A\\bB\\fC\\rD\\nE\\tF\\"G\\\\,<EOF>'
+
+
+# ========== Invalid Identifier (1 test) ==========
+def test_identifier_cannot_start_with_digit():
+    """137. Identifier: cannot start with digit"""
+    tokenizer = Tokenizer("9person")
+    assert tokenizer.get_tokens_as_string() == "9,person,<EOF>"
