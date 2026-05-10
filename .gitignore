@@ -26,3 +26,4 @@ reports/
 *.class
 *.j
 .antlr/
+tests/test_codegend.py

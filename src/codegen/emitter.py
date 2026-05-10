@@ -707,3 +707,33 @@ class Emitter:
         Clear the code buffer.
         """
         self.buff.clear()
+
+    def emit_field_decl(self, name: str, in_type) -> str:
+        """Emit a public instance field directive for a struct class."""
+        return ".field public " + name + " " + self.get_jvm_type(in_type) + JasminCode.END
+
+    def emit_default_ctor(self) -> str:
+        """Emit a default no-arg <init>()V that chains to Object.<init>()V."""
+        result = list()
+        result.append(JasminCode.END + ".method public <init>()V" + JasminCode.END)
+        result.append(JasminCode.INDENT + "aload_0" + JasminCode.END)
+        result.append(JasminCode.INDENT + "invokespecial java/lang/Object/<init>()V" + JasminCode.END)
+        result.append(JasminCode.INDENT + "return" + JasminCode.END)
+        result.append(".limit stack 1" + JasminCode.END)
+        result.append(".limit locals 1" + JasminCode.END)
+        result.append(".end method" + JasminCode.END)
+        return "".join(result)
+
+    def emit_not(self, frame) -> str:
+        """Emit logical NOT: turns 0 -> 1 and any non-zero -> 0 (int)."""
+        result = list()
+        label_f = frame.get_new_label()
+        label_o = frame.get_new_label()
+        frame.pop()
+        result.append(self.jvm.emitIFNE(label_f))
+        result.append(self.emit_push_iconst(1, frame))
+        result.append(self.emit_goto(label_o, frame))
+        result.append(self.emit_label(label_f, frame))
+        result.append(self.emit_push_iconst(0, frame))
+        result.append(self.emit_label(label_o, frame))
+        return "".join(result)
