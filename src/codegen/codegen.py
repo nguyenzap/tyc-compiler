@@ -34,6 +34,85 @@ class CodeGenerator(BaseVisitor):
                 return sym
         raise RuntimeError(f"Undeclared symbol: {name}")
 
+    def _infer_return_type(self, decl: FuncDecl):
+        """Walk a function body to infer its return type when omitted in source."""
+        param_types = {p.name: p.param_type for p in decl.params}
+
+        def expr_type(e):
+            if isinstance(e, IntLiteral):
+                return IntType()
+            if isinstance(e, FloatLiteral):
+                return FloatType()
+            if isinstance(e, StringLiteral):
+                return StringType()
+            if isinstance(e, Identifier):
+                return param_types.get(e.name)
+            if isinstance(e, FuncCall):
+                fn = self.functions.get(e.name)
+                return fn.type.return_type if fn else None
+            if isinstance(e, BinaryOp):
+                if e.operator in ("<", "<=", ">", ">=", "==", "!=", "&&", "||", "%"):
+                    return IntType()
+                lt = expr_type(e.left)
+                rt = expr_type(e.right)
+                if lt is None and rt is None:
+                    return None
+                if (lt is not None and is_float_type(lt)) or (rt is not None and is_float_type(rt)):
+                    return FloatType()
+                return IntType()
+            if isinstance(e, PrefixOp):
+                if e.operator == "!":
+                    return IntType()
+                if e.operator in ("++", "--"):
+                    return IntType()
+                return expr_type(e.operand)
+            if isinstance(e, PostfixOp):
+                return IntType()
+            if isinstance(e, AssignExpr):
+                return expr_type(e.rhs)
+            if isinstance(e, MemberAccess):
+                base = expr_type(e.obj)
+                base_name = getattr(base, "struct_name", None)
+                if base_name and base_name in self.structs:
+                    return self.structs[base_name].get(e.member)
+                return None
+            return None
+
+        found = None
+
+        def walk(stmt):
+            nonlocal found
+            if found is not None:
+                return
+            if isinstance(stmt, ReturnStmt):
+                if stmt.expr is None:
+                    found = VoidType()
+                else:
+                    t = expr_type(stmt.expr)
+                    if t is not None:
+                        found = t
+            elif isinstance(stmt, BlockStmt):
+                for s in stmt.statements:
+                    walk(s)
+            elif isinstance(stmt, IfStmt):
+                walk(stmt.then_stmt)
+                if found is None and stmt.else_stmt:
+                    walk(stmt.else_stmt)
+            elif isinstance(stmt, WhileStmt):
+                walk(stmt.body)
+            elif isinstance(stmt, ForStmt):
+                walk(stmt.body)
+            elif isinstance(stmt, SwitchStmt):
+                for c in stmt.cases:
+                    for s in c.statements:
+                        walk(s)
+                if found is None and stmt.default_case:
+                    for s in stmt.default_case.statements:
+                        walk(s)
+
+        walk(decl.body)
+        return found if found is not None else VoidType()
+
     def _infer_type(self, node: Expr, o: Access):
         if isinstance(node, IntLiteral):
             return IntType()
@@ -67,7 +146,12 @@ class CodeGenerator(BaseVisitor):
 
         for decl in node.decls:
             if isinstance(decl, FuncDecl):
-                return_type = decl.return_type if decl.return_type else VoidType()
+                if decl.return_type is not None:
+                    return_type = decl.return_type
+                else:
+                    return_type = self._infer_return_type(decl)
+                # Patch decl in place so visit_func_decl emits the right signature
+                decl.return_type = return_type
                 param_types = [p.param_type for p in decl.params]
                 self.functions[decl.name] = Symbol(
                     decl.name, FunctionType(param_types, return_type), CName(self.class_name)
@@ -138,8 +222,11 @@ class CodeGenerator(BaseVisitor):
         self.emit.print_out(self.emit.emit_end_method(frame))
 
     def visit_block_stmt(self, node: BlockStmt, o: SubBody = None):
+        # Each block opens a fresh symbol scope so inner declarations shadow
+        # outer ones without polluting the parent scope.
+        inner = SubBody(o.frame, list(o.sym))
         for stmt in node.statements:
-            o = self.visit(stmt, o)
+            inner = self.visit(stmt, inner)
         return o
 
     def visit_var_decl(self, node: VarDecl, o: SubBody = None):
@@ -151,14 +238,30 @@ class CodeGenerator(BaseVisitor):
                 idx, node.name, var_type, frame.get_start_label(), frame.get_end_label()
             )
         )
+        vt_name = getattr(var_type, "struct_name", None)
         if node.init_value is not None:
             prev_pending = self._pending_struct_type
-            vt_name = getattr(var_type, "struct_name", None)
             if isinstance(node.init_value, StructLiteral) and vt_name is not None:
                 self._pending_struct_type = vt_name
-            rhs_code, _ = self.visit(node.init_value, Access(frame, o.sym))
+            rhs_code, rhs_type = self.visit(node.init_value, Access(frame, o.sym))
             self._pending_struct_type = prev_pending
+            # Implicit int -> float coercion at assignment.
+            if is_float_type(var_type) and is_int_type(rhs_type):
+                rhs_code = rhs_code + self.emit.emit_i2f(frame)
             self.emit.print_out(rhs_code)
+            self.emit.print_out(self.emit.emit_write_var(node.name, var_type, idx, frame))
+        elif vt_name is not None and vt_name in self.structs:
+            # Uninitialized struct: auto-instantiate so member assignments are valid.
+            self.emit.print_out(self.emit.emit_new_instance(vt_name, frame))
+            self.emit.print_out(self.emit.emit_write_var(node.name, var_type, idx, frame))
+        elif is_int_type(var_type):
+            self.emit.print_out(self.emit.emit_push_iconst(0, frame))
+            self.emit.print_out(self.emit.emit_write_var(node.name, var_type, idx, frame))
+        elif is_float_type(var_type):
+            self.emit.print_out(self.emit.emit_push_fconst("0.0", frame))
+            self.emit.print_out(self.emit.emit_write_var(node.name, var_type, idx, frame))
+        elif is_string_type(var_type):
+            self.emit.print_out(self.emit.emit_push_const("", StringType(), frame))
             self.emit.print_out(self.emit.emit_write_var(node.name, var_type, idx, frame))
         o.sym.append(Symbol(node.name, var_type, Index(idx)))
         return o
@@ -222,6 +325,10 @@ class CodeGenerator(BaseVisitor):
         return code
 
     def visit_binary_op(self, node: BinaryOp, o: Access = None):
+        # Short-circuit && / || must be compiled before evaluating the right
+        # operand, so we handle them up front and bail out.
+        if node.operator in ("&&", "||"):
+            return self._compile_short_circuit(node, o)
         left_code, left_type = self.visit(node.left, o)
         right_code, right_type = self.visit(node.right, o)
         frame = o.frame
@@ -256,11 +363,47 @@ class CodeGenerator(BaseVisitor):
                 left_code = self._coerce_to_float(left_code, left_type, frame)
                 right_code = self._coerce_to_float(right_code, right_type, frame)
             return left_code + right_code + self.emit.emit_re_op(node.operator, op_type, frame), IntType()
-        if node.operator == "&&":
-            return left_code + right_code + self.emit.emit_and_op(frame), IntType()
-        if node.operator == "||":
-            return left_code + right_code + self.emit.emit_or_op(frame), IntType()
         raise RuntimeError(f"Unsupported operator: {node.operator}")
+
+    def _compile_short_circuit(self, node: BinaryOp, o: Access):
+        """Compile && / || with proper short-circuit evaluation.
+
+        For &&: if left is 0, push 0 and skip right. Else evaluate right.
+        For ||: if left is non-zero, push 1 and skip right. Else evaluate right.
+        Final result on stack is normalised to 0 or 1.
+        """
+        frame = o.frame
+        is_and = node.operator == "&&"
+        left_code, _ = self.visit(node.left, o)
+        # The conditional jump pops the left value from our virtual frame.
+        right_code, _ = self.visit(node.right, o)
+
+        false_label = frame.get_new_label()
+        true_label = frame.get_new_label()
+        end_label = frame.get_new_label()
+        out = []
+        out.append(left_code)
+        # Pop the left value with the conditional branch.
+        if is_and:
+            # If left == 0, jump to false_label.
+            out.append(self.emit.jvm.emitIFEQ(false_label))
+        else:
+            # If left != 0, jump to true_label.
+            out.append(self.emit.jvm.emitIFNE(true_label))
+        frame.pop()
+        out.append(right_code)
+        # Right value is now on stack — normalise to 0/1 via IFEQ.
+        out.append(self.emit.jvm.emitIFEQ(false_label))
+        frame.pop()
+        out.append(self.emit.emit_label(true_label, frame))
+        out.append(self.emit.emit_push_iconst(1, frame))
+        out.append(self.emit.emit_goto(end_label, frame))
+        out.append(self.emit.emit_label(false_label, frame))
+        # Both branches push exactly one int; account for the parallel push.
+        frame.pop()
+        out.append(self.emit.emit_push_iconst(0, frame))
+        out.append(self.emit.emit_label(end_label, frame))
+        return "".join(out), IntType()
 
     def visit_assign_expr(self, node: AssignExpr, o: Access = None):
         frame = o.frame
@@ -268,7 +411,15 @@ class CodeGenerator(BaseVisitor):
             obj_code, obj_type = self.visit(node.lhs.obj, o)
             struct_name = getattr(obj_type, "struct_name", None)
             member_type = self.structs[struct_name][node.lhs.member]
-            rhs_code, _ = self.visit(node.rhs, o)
+            # If RHS is a struct literal, propagate the field's struct type as context.
+            prev_pending = self._pending_struct_type
+            mt_name = getattr(member_type, "struct_name", None)
+            if isinstance(node.rhs, StructLiteral) and mt_name is not None:
+                self._pending_struct_type = mt_name
+            rhs_code, rhs_type = self.visit(node.rhs, o)
+            self._pending_struct_type = prev_pending
+            if is_float_type(member_type) and is_int_type(rhs_type):
+                rhs_code = rhs_code + self.emit.emit_i2f(frame)
             # Stack after obj_code+rhs_code: [obj_ref, rhs_val]
             # dup_x1 → [rhs_val, obj_ref, rhs_val]; putfield pops [obj, val] → [rhs_val]
             code = (obj_code + rhs_code
@@ -277,8 +428,17 @@ class CodeGenerator(BaseVisitor):
             return code, member_type
         if not isinstance(node.lhs, Identifier):
             raise RuntimeError("Minimal codegen only supports identifier assignment")
-        rhs_code, rhs_type = self.visit(node.rhs, o)
         lhs_sym = self._lookup_symbol(node.lhs.name, o.sym)
+        # If RHS is a struct literal, propagate the LHS variable's struct type.
+        prev_pending = self._pending_struct_type
+        lhs_struct = getattr(lhs_sym.type, "struct_name", None)
+        if isinstance(node.rhs, StructLiteral) and lhs_struct is not None:
+            self._pending_struct_type = lhs_struct
+        rhs_code, rhs_type = self.visit(node.rhs, o)
+        self._pending_struct_type = prev_pending
+        if is_float_type(lhs_sym.type) and is_int_type(rhs_type):
+            rhs_code = rhs_code + self.emit.emit_i2f(frame)
+            rhs_type = FloatType()
         idx = lhs_sym.value.value
         code = rhs_code + self.emit.emit_dup(frame) + self.emit.emit_write_var(
             node.lhs.name, lhs_sym.type, idx, frame
@@ -331,7 +491,7 @@ class CodeGenerator(BaseVisitor):
             member_table[m.name] = m.member_type
         self.structs[node.name] = member_table
 
-        struct_emit.print_out(struct_emit.emit_default_ctor())
+        struct_emit.print_out(struct_emit.emit_default_ctor(node.name, member_table))
         struct_emit.emit_epilog()
 
         self.emit = prev_emit
@@ -360,7 +520,9 @@ class CodeGenerator(BaseVisitor):
 
     def visit_for_stmt(self, node: ForStmt, o: SubBody = None):
         frame = o.frame
-        # init runs in same scope as the loop
+        # Per TyC spec, <init> scope follows the enclosing block's scope rules
+        # (not a separate inner scope), so the loop variable is visible after
+        # the loop ends inside the same block.
         if node.init is not None:
             o = self.visit(node.init, o)
 
@@ -399,8 +561,10 @@ class CodeGenerator(BaseVisitor):
             "_sw", IntType(), sel_idx, frame
         ))
 
-        frame.enter_loop()
-        brk_label = frame.get_break_label()
+        # Push only a break label — leave the enclosing loop's continue label
+        # intact so `continue` inside a case still targets the surrounding loop.
+        brk_label = frame.get_new_label()
+        frame.brk_label.append(brk_label)
 
         case_labels = [frame.get_new_label() for _ in node.cases]
         default_label = frame.get_new_label()
@@ -417,18 +581,23 @@ class CodeGenerator(BaseVisitor):
 
         self.emit.print_out(self.emit.emit_goto(default_label, frame))
 
+        # All case/default bodies share a single switch-body scope (so a
+        # variable declared in case N is visible in case N+1 / default after
+        # fall-through), while still being isolated from the enclosing scope.
+        switch_scope = SubBody(frame, list(o.sym))
+
         for i, case in enumerate(node.cases):
             self.emit.print_out(self.emit.emit_label(case_labels[i], frame))
             for stmt in case.statements:
-                self.visit(stmt, o)
+                switch_scope = self.visit(stmt, switch_scope)
 
         self.emit.print_out(self.emit.emit_label(default_label, frame))
         if node.default_case is not None:
             for stmt in node.default_case.statements:
-                self.visit(stmt, o)
+                switch_scope = self.visit(stmt, switch_scope)
 
         self.emit.print_out(self.emit.emit_label(brk_label, frame))
-        frame.exit_loop()
+        frame.brk_label.pop()
         return o
 
     def visit_case_stmt(self, node: CaseStmt, o: Any = None):
@@ -557,7 +726,9 @@ class CodeGenerator(BaseVisitor):
             code += self.emit.emit_dup(frame)
             mt_name = getattr(mtype, "struct_name", None)
             self._pending_struct_type = mt_name
-            v_code, _ = self.visit(value_expr, o)
+            v_code, v_type = self.visit(value_expr, o)
+            if is_float_type(mtype) and is_int_type(v_type):
+                v_code = v_code + self.emit.emit_i2f(frame)
             code += v_code
             code += self.emit.emit_put_field(
                 f"{struct_name}/{mname}", mtype, frame

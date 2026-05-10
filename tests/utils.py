@@ -158,13 +158,21 @@ class CodeGenerator:
         Generate code from AST and run it, return output.
 
         Args:
-            ast: AST node (Program)
+            ast: Either an AST node (Program) or a TyC source string. Strings
+                 are parsed via ASTGenerator first.
             input_data: Optional input string for program (for readInt, readFloat, etc.)
 
         Returns:
             Output string from program execution
         """
         try:
+            # Accept source-string input by parsing it into an AST first.
+            if isinstance(ast, str):
+                gen_result = ASTGenerator(ast).generate()
+                if isinstance(gen_result, str):
+                    return gen_result  # AST-generation error message
+                ast = gen_result
+
             # Clean up old generated files first
             self._cleanup_generated_files()
 

@@ -27,3 +27,6 @@ reports/
 *.j
 .antlr/
 tests/test_codegend.py
+tests/test_codegenh.py
+tests/test_codegenduy.py
+.claude/

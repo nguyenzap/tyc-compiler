@@ -1177,3 +1177,223 @@ def test_116():
         ]))
     ])
     _run(ast, "1122")
+
+
+# =====================================================================
+# Additional tests (117-136) — patterns inspired by peer review gaps
+# =====================================================================
+
+# --- End-to-end source-string pipeline (also validates lexer+parser+ast) ---
+
+def _run_src(source, expected, input_data=""):
+    from tests.utils import CodeGenerator
+    result = CodeGenerator().generate_and_run(source, input_data)
+    assert result == expected, f"Expected '{expected}', got '{result}'"
+
+def test_117():
+    """Negative int literal: -999"""
+    _run_src("void main() { printInt(-999); }", "-999")
+
+def test_118():
+    """Negative float literal: -1.5"""
+    _run_src("void main() { printFloat(-1.5); }", "-1.5")
+
+def test_119():
+    """Empty string literal produces empty output"""
+    _run_src('void main() { printString(""); }', "")
+
+def test_120():
+    """Multiple types printed sequentially concatenate as expected"""
+    _run_src('void main() { printInt(7); printFloat(2.5); printString("ok"); }', "72.5ok")
+
+# --- Chained assignment and assignment-as-expression ---
+
+def test_121():
+    """Chained assignment: x = y = z = 10 — all variables equal 10"""
+    ast = Program([FuncDecl(VoidType(), "main", [], BlockStmt([
+        VarDecl(IntType(), "x", None),
+        VarDecl(IntType(), "y", None),
+        VarDecl(IntType(), "z", None),
+        ExprStmt(AssignExpr(Identifier("x"),
+            AssignExpr(Identifier("y"),
+                AssignExpr(Identifier("z"), IntLiteral(10))))),
+        _print_int(BinaryOp(BinaryOp(Identifier("x"), "+", Identifier("y")),
+                             "+", Identifier("z"))),
+    ]))])
+    _run(ast, "30")
+
+def test_122():
+    """Assignment as sub-expression: r = (x=6) + 4 == 10"""
+    ast = Program([FuncDecl(VoidType(), "main", [], BlockStmt([
+        VarDecl(IntType(), "x", None),
+        VarDecl(IntType(), "r", BinaryOp(AssignExpr(Identifier("x"), IntLiteral(6)),
+                                         "+", IntLiteral(4))),
+        _print_int(Identifier("r")),
+        _print_int(Identifier("x")),
+    ]))])
+    _run(ast, "106")
+
+# --- Unary minus / NOT on variables (not just literals) ---
+
+def test_123():
+    """Unary minus on int variable"""
+    ast = Program([FuncDecl(VoidType(), "main", [], BlockStmt([
+        VarDecl(IntType(), "n", IntLiteral(8)),
+        _print_int(PrefixOp("-", Identifier("n"))),
+    ]))])
+    _run(ast, "-8")
+
+def test_124():
+    """Unary minus on float variable"""
+    ast = Program([FuncDecl(VoidType(), "main", [], BlockStmt([
+        VarDecl(FloatType(), "f", FloatLiteral(3.0)),
+        _print_float(PrefixOp("-", Identifier("f"))),
+    ]))])
+    _run(ast, "-3.0")
+
+def test_125():
+    """Logical NOT on a negative value — spec: only 0 is false, so !(-1) == 0"""
+    ast = Program([FuncDecl(VoidType(), "main", [], BlockStmt([
+        _print_int(PrefixOp("!", PrefixOp("-", IntLiteral(3)))),
+    ]))])
+    _run(ast, "0")
+
+# --- Early-return (no else) then fall-through return ---
+
+def test_126():
+    """Two separate returns: early-return guard then unconditional return"""
+    ast = Program([
+        FuncDecl(IntType(), "safe_div",
+                 [Param(IntType(), "a"), Param(IntType(), "b")],
+                 BlockStmt([
+                     IfStmt(BinaryOp(Identifier("b"), "==", IntLiteral(0)),
+                            ReturnStmt(IntLiteral(-1))),
+                     ReturnStmt(BinaryOp(Identifier("a"), "/", Identifier("b")))
+                 ])),
+        FuncDecl(VoidType(), "main", [], BlockStmt([
+            _print_int(FuncCall("safe_div", [IntLiteral(10), IntLiteral(2)])),
+            _print_int(FuncCall("safe_div", [IntLiteral(10), IntLiteral(0)])),
+        ]))
+    ])
+    _run(ast, "5-1")
+
+# --- Nested for with postfix on variable ---
+
+def test_127():
+    """3×3 nested for counting via postfix ++ — same result, different approach"""
+    ast = Program([FuncDecl(VoidType(), "main", [], BlockStmt([
+        VarDecl(IntType(), "cnt", IntLiteral(0)),
+        ForStmt(
+            VarDecl(IntType(), "r", IntLiteral(0)),
+            BinaryOp(Identifier("r"), "<", IntLiteral(3)),
+            AssignExpr(Identifier("r"), BinaryOp(Identifier("r"), "+", IntLiteral(1))),
+            ForStmt(
+                VarDecl(IntType(), "c", IntLiteral(0)),
+                BinaryOp(Identifier("c"), "<", IntLiteral(3)),
+                PostfixOp("++", Identifier("c")),
+                ExprStmt(PostfixOp("++", Identifier("cnt")))
+            )
+        ),
+        _print_int(Identifier("cnt")),
+    ]))])
+    _run(ast, "9")
+
+# --- Struct reference copy ---
+
+def test_128():
+    """Assigning one struct var to another copies the reference"""
+    ast = Program([
+        StructDecl("Vec", [MemberDecl(IntType(), "v")]),
+        FuncDecl(VoidType(), "main", [], BlockStmt([
+            VarDecl(StructType("Vec"), "a", StructLiteral([IntLiteral(42)])),
+            VarDecl(StructType("Vec"), "b", Identifier("a")),
+            _print_int(MemberAccess(Identifier("b"), "v")),
+        ]))
+    ])
+    _run(ast, "42")
+
+# --- Nested struct literal ---
+
+def test_129():
+    """Nested struct literal: Line { Point start; Point end; }"""
+    ast = Program([
+        StructDecl("Pt", [MemberDecl(IntType(), "x"), MemberDecl(IntType(), "y")]),
+        StructDecl("Seg", [MemberDecl(StructType("Pt"), "s"), MemberDecl(StructType("Pt"), "e")]),
+        FuncDecl(VoidType(), "main", [], BlockStmt([
+            VarDecl(StructType("Seg"), "seg",
+                    StructLiteral([
+                        StructLiteral([IntLiteral(0), IntLiteral(1)]),
+                        StructLiteral([IntLiteral(4), IntLiteral(5)]),
+                    ])),
+            _print_int(MemberAccess(MemberAccess(Identifier("seg"), "s"), "x")),
+            _print_int(MemberAccess(MemberAccess(Identifier("seg"), "e"), "y")),
+        ]))
+    ])
+    _run(ast, "05")
+
+# --- Inferred return type ---
+
+def test_130():
+    """Function with omitted return type, inferred as int from body"""
+    _run_src("""
+        triple(int n) { return n * 3; }
+        void main() { printInt(triple(7)); }
+    """, "21")
+
+def test_131():
+    """Inferred return type float"""
+    _run_src("""
+        half(float x) { return x / 2.0; }
+        void main() { printFloat(half(9.0)); }
+    """, "4.5")
+
+# --- Switch+continue to enclosing while ---
+
+def test_132():
+    """continue inside switch case reaches the enclosing while"""
+    ast = Program([FuncDecl(VoidType(), "main", [], BlockStmt([
+        VarDecl(IntType(), "i", IntLiteral(0)),
+        WhileStmt(
+            BinaryOp(Identifier("i"), "<", IntLiteral(5)),
+            BlockStmt([
+                ExprStmt(PostfixOp("++", Identifier("i"))),
+                SwitchStmt(Identifier("i"), [
+                    CaseStmt(IntLiteral(3), [ContinueStmt()]),
+                ], None),
+                _print_int(Identifier("i")),
+            ])
+        ),
+    ]))])
+    # i=1 → print 1; i=2 → print 2; i=3 → continue (no print); i=4 → print 4; i=5 → print 5
+    _run(ast, "1245")
+
+# --- Block scope: inner var does not bleed out ---
+
+def test_133():
+    """Variable declared inside a block does not shadow outer after block ends"""
+    _run_src("""
+        void main() {
+            int v = 10;
+            { int v = 99; printInt(v); }
+            printInt(v);
+        }
+    """, "9910")
+
+def test_134():
+    """For-loop init var lives in enclosing block scope (TyC C89 semantics)"""
+    _run_src("""
+        void main() {
+            for (int i = 0; i < 3; i++) {}
+            printInt(i);
+        }
+    """, "3")
+
+# --- Boolean truthiness edge cases ---
+
+def test_135():
+    """Non-zero positive is truthy"""
+    _run_src("void main() { if (42) printString(\"t\"); else printString(\"f\"); }", "t")
+
+def test_136():
+    """Zero is the only falsy value"""
+    _run_src("void main() { if (0) printString(\"t\"); else printString(\"f\"); }", "f")

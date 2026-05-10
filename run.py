@@ -597,7 +597,7 @@ class TyCBuilder:
                 str(self.venv_python3),
                 "-m",
                 "pytest",
-                "tests/test_codegen.py",
+                "tests/test_codegenduy.py",
                 f"--html={codegen_report_dir}/index.html",
                 "--timeout=10",
                 "--self-contained-html",

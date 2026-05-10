@@ -165,11 +165,50 @@ class Emitter:
             return self.emit_push_iconst(in_, frame)
         elif is_string_type(typ):
             frame.push()
-            # String literals - in_ already contains the string value (without quotes)
-            # For JVM LDC, we need to properly escape the string
-            # Escape backslashes and quotes
-            escaped = in_.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\t', '\\t')
-            return self.jvm.emitLDC(f'"{escaped}"')
+            # The TyC lexer preserves escape sequences as literal characters
+            # (e.g. \t arrives as '\\','t'), so first decode them into the real
+            # bytes, then re-encode for Jasmin using \u#### for control chars
+            # because Jasmin's runtime here does not translate \t / \n itself.
+            decoded = []
+            i = 0
+            while i < len(in_):
+                c = in_[i]
+                if c == '\\' and i + 1 < len(in_):
+                    nxt = in_[i + 1]
+                    table = {
+                        't': '\t', 'n': '\n', 'r': '\r', 'b': '\b', 'f': '\f',
+                        '"': '"', "'": "'", '\\': '\\', '0': '\0',
+                    }
+                    if nxt in table:
+                        decoded.append(table[nxt])
+                        i += 2
+                        continue
+                decoded.append(c)
+                i += 1
+            decoded_str = ''.join(decoded)
+
+            out = []
+            for ch in decoded_str:
+                code = ord(ch)
+                if ch == '\\':
+                    out.append('\\\\')
+                elif ch == '"':
+                    out.append('\\"')
+                elif ch == '\t':
+                    out.append('\\u0009')
+                elif ch == '\n':
+                    out.append('\\u000a')
+                elif ch == '\r':
+                    out.append('\\u000d')
+                elif ch == '\b':
+                    out.append('\\u0008')
+                elif ch == '\f':
+                    out.append('\\u000c')
+                elif code < 0x20 or code > 0x7e:
+                    out.append('\\u{:04x}'.format(code))
+                else:
+                    out.append(ch)
+            return self.jvm.emitLDC('"' + ''.join(out) + '"')
         else:
             raise IllegalOperandException(f"Unsupported constant type: {type(typ)}")
 
@@ -486,30 +525,19 @@ class Emitter:
     def emit_if_true(self, label: int, frame) -> str:
         """
         Generate code to jump to label if the value on top of operand stack is true (non-zero).
-        
-        Args:
-            label: The label where the execution continues if the value on top of stack is true
-            frame: Frame object for stack management
-            
-        Returns:
-            Generated JVM instruction string
+        Per the TyC spec, 0 is false and any non-zero (including negative) is true,
+        so we use IFNE rather than IFGT.
         """
         frame.pop()
-        return self.jvm.emitIFGT(label)
+        return self.jvm.emitIFNE(label)
 
     def emit_if_false(self, label: int, frame) -> str:
         """
         Generate code to jump to label if the value on top of operand stack is false (zero).
-        
-        Args:
-            label: The label where the execution continues if the value on top of stack is false
-            frame: Frame object for stack management
-            
-        Returns:
-            Generated JVM instruction string
+        Per the TyC spec, only the value 0 is false, so we use IFEQ rather than IFLE.
         """
         frame.pop()
-        return self.jvm.emitIFLE(label)
+        return self.jvm.emitIFEQ(label)
 
     def emit_dup(self, frame) -> str:
         """
@@ -712,14 +740,40 @@ class Emitter:
         """Emit a public instance field directive for a struct class."""
         return ".field public " + name + " " + self.get_jvm_type(in_type) + JasminCode.END
 
-    def emit_default_ctor(self) -> str:
-        """Emit a default no-arg <init>()V that chains to Object.<init>()V."""
+    def emit_default_ctor(self, class_name: str = None, members=None) -> str:
+        """Emit <init>()V. If class_name + members are given, also default-init
+        each member: int -> 0, float -> 0.0, string -> "", struct -> new
+        instance (recursive), so that an uninitialized struct can be safely
+        used / printed."""
         result = list()
         result.append(JasminCode.END + ".method public <init>()V" + JasminCode.END)
         result.append(JasminCode.INDENT + "aload_0" + JasminCode.END)
         result.append(JasminCode.INDENT + "invokespecial java/lang/Object/<init>()V" + JasminCode.END)
+
+        max_stack = 1
+        if class_name is not None and members:
+            for mname, mtype in members.items():
+                desc = self.get_jvm_type(mtype)
+                result.append(JasminCode.INDENT + "aload_0" + JasminCode.END)
+                if is_int_type(mtype):
+                    result.append(JasminCode.INDENT + "iconst_0" + JasminCode.END)
+                elif is_float_type(mtype):
+                    result.append(JasminCode.INDENT + "fconst_0" + JasminCode.END)
+                elif is_string_type(mtype):
+                    result.append(JasminCode.INDENT + 'ldc ""' + JasminCode.END)
+                elif is_struct_type(mtype):
+                    sub = mtype.struct_name
+                    result.append(JasminCode.INDENT + "new " + sub + JasminCode.END)
+                    result.append(JasminCode.INDENT + "dup" + JasminCode.END)
+                    result.append(JasminCode.INDENT + "invokespecial " + sub + "/<init>()V" + JasminCode.END)
+                    max_stack = max(max_stack, 3)
+                else:
+                    continue
+                result.append(JasminCode.INDENT + "putfield " + class_name + "/" + mname + " " + desc + JasminCode.END)
+                max_stack = max(max_stack, 2)
+
         result.append(JasminCode.INDENT + "return" + JasminCode.END)
-        result.append(".limit stack 1" + JasminCode.END)
+        result.append(".limit stack " + str(max_stack) + JasminCode.END)
         result.append(".limit locals 1" + JasminCode.END)
         result.append(".end method" + JasminCode.END)
         return "".join(result)
